@@ -192,7 +192,7 @@ struct storage
     alignas(T) char payload_[sizeof(T)];
 
     template<typename... Args>
-    void construct(Args... args)
+    void construct(Args&&... args)
     {
         new (&payload_) T(std::forward<Args>(args)...);
     }
@@ -235,7 +235,7 @@ class shared_state
     shared_state(shared_state&&)      = delete;
 
     template<typename... Args>
-    void send(Args... args)
+    void send(Args&&... args)
     {
         storage_.construct(std::forward<Args>(args)...);
 
@@ -389,7 +389,7 @@ class sender
     }
 
     template<typename... Args>
-    void send(Args... args)
+    void send(Args&&... args)
     {
         if (!shared_state_)
             throw error{ errc::no_state };
