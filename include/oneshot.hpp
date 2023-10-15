@@ -276,7 +276,7 @@ class shared_state
         return net::async_initiate<decltype(token), void(error_code)>(
             [this](auto handler)
             {
-                auto exec = get_associated_executor(handler);
+                auto exec = net::get_associated_executor(handler);
 
                 using handler_type = std::decay_t<decltype(handler)>;
                 using model_type  = wait_op_model<decltype(exec), handler_type>;
