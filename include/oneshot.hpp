@@ -52,16 +52,19 @@ struct is_error_code_enum<oneshot::errc> : true_type
 
 namespace oneshot
 {
-inline const std::error_category& oneshot_category()
+inline const std::error_category&
+oneshot_category()
 {
     static const struct : std::error_category
     {
-        const char* name() const noexcept override
+        const char*
+        name() const noexcept override
         {
             return "oneshot";
         }
 
-        std::string message(int ev) const override
+        std::string
+        message(int ev) const override
         {
             switch (static_cast<errc>(ev))
             {
@@ -84,7 +87,8 @@ inline const std::error_category& oneshot_category()
     return category;
 };
 
-inline std::error_code make_error_code(errc e)
+inline std::error_code
+make_error_code(errc e)
 {
     return { static_cast<int>(e), oneshot_category() };
 }
@@ -99,7 +103,8 @@ namespace detail
 {
 struct wait_op
 {
-    virtual void shutdown() noexcept  = 0;
+    virtual void
+    shutdown() noexcept               = 0;
     virtual void complete(error_code) = 0;
     virtual ~wait_op()                = default;
 };
@@ -117,12 +122,14 @@ class wait_op_model final : public wait_op
     {
     }
 
-    [[nodiscard]] auto get_cancellation_slot() const noexcept
+    [[nodiscard]] auto
+    get_cancellation_slot() const noexcept
     {
         return net::get_associated_cancellation_slot(handler_);
     }
 
-    static wait_op_model* construct(Executor e, Handler handler)
+    static wait_op_model*
+    construct(Executor e, Handler handler)
     {
         auto halloc = net::get_associated_allocator(handler);
         auto alloc  = typename std::allocator_traits<
@@ -141,9 +148,8 @@ class wait_op_model final : public wait_op
         }
     }
 
-    static void destroy(
-        wait_op_model* self,
-        net::associated_allocator_t<Handler> halloc)
+    static void
+    destroy(wait_op_model* self, net::associated_allocator_t<Handler> halloc)
     {
         auto alloc = typename std::allocator_traits<
             decltype(halloc)>::template rebind_alloc<wait_op_model>(halloc);
@@ -152,7 +158,8 @@ class wait_op_model final : public wait_op
         traits.deallocate(alloc, self, 1);
     }
 
-    void complete(error_code ec) override
+    void
+    complete(error_code ec) override
     {
         get_cancellation_slot().clear();
         auto g = std::move(work_guard_);
@@ -161,7 +168,8 @@ class wait_op_model final : public wait_op
         net::post(g.get_executor(), net::append(std::move(h), ec));
     }
 
-    void shutdown() noexcept override
+    void
+    shutdown() noexcept override
     {
         get_cancellation_slot().clear();
         destroy(this, net::get_associated_allocator(this->handler_));
@@ -174,15 +182,18 @@ struct storage;
 template<>
 struct storage<void>
 {
-    void construct() noexcept
+    void
+    construct() noexcept
     {
     }
 
-    void destroy() noexcept
+    void
+    destroy() noexcept
     {
     }
 
-    void* object() noexcept
+    void*
+    object() noexcept
     {
         return nullptr;
     }
@@ -194,17 +205,20 @@ struct storage
     alignas(T) char payload_[sizeof(T)];
 
     template<typename... Args>
-    void construct(Args&&... args)
+    void
+    construct(Args&&... args)
     {
         new (&payload_) T(std::forward<Args>(args)...);
     }
 
-    void destroy() noexcept
+    void
+    destroy() noexcept
     {
         std::destroy_at(object());
     }
 
-    T* object() noexcept
+    T*
+    object() noexcept
     {
         return std::launder(reinterpret_cast<T*>(&payload_));
     }
@@ -237,7 +251,8 @@ class shared_state
     shared_state(shared_state&&)      = delete;
 
     template<typename... Args>
-    void send(Args&&... args)
+    void
+    send(Args&&... args)
     {
         storage_.construct(std::forward<Args>(args)...);
 
@@ -257,7 +272,8 @@ class shared_state
         }
     }
 
-    void sender_detached() noexcept
+    void
+    sender_detached() noexcept
     {
         // possible vals: empty, waiting, detached(receiver)
         auto prev = state_.exchange(detached, std::memory_order_relaxed);
@@ -273,7 +289,8 @@ class shared_state
     }
 
     template<typename CompletionToken>
-    auto async_wait(CompletionToken&& token)
+    auto
+    async_wait(CompletionToken&& token)
     {
         return net::async_initiate<decltype(token), void(error_code)>(
             [this](auto handler)
@@ -333,7 +350,8 @@ class shared_state
             token);
     }
 
-    void receiver_detached() noexcept
+    void
+    receiver_detached() noexcept
     {
         // possible vals: empty, engaged, sent, detached(sender)
         auto prev = state_.exchange(detached, std::memory_order_relaxed);
@@ -349,13 +367,15 @@ class shared_state
         }
     }
 
-    bool is_ready() const noexcept
+    bool
+    is_ready() const noexcept
     {
         auto state = state_.load(std::memory_order_relaxed);
         return state == sent || state == engaged;
     }
 
-    T* get_stored_object() noexcept
+    T*
+    get_stored_object() noexcept
     {
         auto state = state_.load(std::memory_order_acquire);
 
@@ -384,14 +404,16 @@ class sender
         std::swap(shared_state_, other.shared_state_);
     }
 
-    sender& operator=(sender&& other) noexcept
+    sender&
+    operator=(sender&& other) noexcept
     {
         std::swap(shared_state_, other.shared_state_);
         return *this;
     }
 
     template<typename... Args>
-    void send(Args&&... args)
+    void
+    send(Args&&... args)
     {
         if (!shared_state_)
             throw error{ errc::no_state };
@@ -426,14 +448,16 @@ class receiver
         std::swap(shared_state_, other.shared_state_);
     }
 
-    receiver& operator=(receiver&& other) noexcept
+    receiver&
+    operator=(receiver&& other) noexcept
     {
         std::swap(shared_state_, other.shared_state_);
         return *this;
     }
 
     template<typename CompletionToken = net::deferred_t>
-    auto async_wait(CompletionToken&& token = net::deferred_t{})
+    auto
+    async_wait(CompletionToken&& token = net::deferred_t{})
     {
         if (!shared_state_)
             throw error{ errc::no_state };
@@ -441,7 +465,8 @@ class receiver
         return shared_state_->async_wait(std::forward<CompletionToken>(token));
     }
 
-    bool is_ready() const
+    bool
+    is_ready() const
     {
         if (!shared_state_)
             throw error{ errc::no_state };
@@ -449,7 +474,8 @@ class receiver
         return shared_state_->is_ready();
     }
 
-    decltype(auto) get() const
+    decltype(auto)
+    get() const
     {
         static_assert(!std::is_same_v<T, void>, "Only for non void receivers");
 
@@ -470,7 +496,8 @@ class receiver
 };
 
 template<typename T, typename Allocator = std::allocator<T>>
-inline std::pair<sender<T>, receiver<T>> create(Allocator alloc = {})
+inline std::pair<sender<T>, receiver<T>>
+create(Allocator alloc = {})
 {
     struct wrapper
     {

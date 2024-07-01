@@ -11,7 +11,8 @@
 
 namespace asio = boost::asio;
 
-asio::awaitable<void> sender_task(oneshot::sender<std::string> sender)
+asio::awaitable<void>
+sender_task(oneshot::sender<std::string> sender)
 {
     auto timer = asio::steady_timer{ co_await asio::this_coro::executor };
 
@@ -25,14 +26,16 @@ asio::awaitable<void> sender_task(oneshot::sender<std::string> sender)
     sender.send("HOWDY!");
 }
 
-asio::awaitable<void> receiver_task(oneshot::receiver<std::string> receiver)
+asio::awaitable<void>
+receiver_task(oneshot::receiver<std::string> receiver)
 {
     std::cout << "Waiting on sender...\n";
     co_await receiver.async_wait();
     std::cout << "The result: " << receiver.get() << '\n';
 }
 
-int main()
+int
+main()
 {
     auto ctx = asio::io_context{};
 
