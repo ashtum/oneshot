@@ -11,6 +11,7 @@
 #ifdef ONESHOT_ASIO_STANDALONE
 #include <asio/append.hpp>
 #include <asio/associated_cancellation_slot.hpp>
+#include <asio/deferred.hpp>
 #include <asio/post.hpp>
 namespace oneshot
 {
@@ -20,6 +21,7 @@ using error_code = std::error_code;
 #else
 #include <boost/asio/append.hpp>
 #include <boost/asio/associated_cancellation_slot.hpp>
+#include <boost/asio/deferred.hpp>
 #include <boost/asio/post.hpp>
 namespace oneshot
 {
@@ -430,8 +432,8 @@ class receiver
         return *this;
     }
 
-    template<typename CompletionToken>
-    auto async_wait(CompletionToken&& token)
+    template<typename CompletionToken = net::deferred_t>
+    auto async_wait(CompletionToken&& token = net::deferred_t{})
     {
         if (!shared_state_)
             throw error{ errc::no_state };

@@ -18,7 +18,7 @@ asio::awaitable<void> sender_task(oneshot::sender<std::string> sender)
     for (auto i = 1; i <= 3; i++)
     {
         timer.expires_after(std::chrono::seconds{ 1 });
-        co_await timer.async_wait(asio::deferred);
+        co_await timer.async_wait();
         std::cout << i << '\n';
     }
 
@@ -27,8 +27,8 @@ asio::awaitable<void> sender_task(oneshot::sender<std::string> sender)
 
 asio::awaitable<void> receiver_task(oneshot::receiver<std::string> receiver)
 {
-    std::cout << "Waiting for sender...\n";
-    co_await receiver.async_wait(asio::deferred);
+    std::cout << "Waiting on sender...\n";
+    co_await receiver.async_wait();
     std::cout << "The result: " << receiver.get() << '\n';
 }
 
@@ -36,10 +36,10 @@ int main()
 {
     auto ctx = asio::io_context{};
 
-    auto [s, r] = oneshot::create<std::string>();
+    auto [sender, receiver] = oneshot::create<std::string>();
 
-    asio::co_spawn(ctx, sender_task(std::move(s)), asio::detached);
-    asio::co_spawn(ctx, receiver_task(std::move(r)), asio::detached);
+    asio::co_spawn(ctx, sender_task(std::move(sender)), asio::detached);
+    asio::co_spawn(ctx, receiver_task(std::move(receiver)), asio::detached);
 
     ctx.run();
 }
