@@ -5,13 +5,13 @@
 #include <oneshot.hpp>
 
 #include <boost/asio.hpp>
-#include <fmt/format.h>
 
+#include <iostream>
 #include <string>
 
 namespace asio = boost::asio;
 
-asio::awaitable<void> sender_task(oneshot::sender<std::string> s)
+asio::awaitable<void> sender_task(oneshot::sender<std::string> sender)
 {
     auto timer = asio::steady_timer{ co_await asio::this_coro::executor };
 
@@ -19,18 +19,17 @@ asio::awaitable<void> sender_task(oneshot::sender<std::string> s)
     {
         timer.expires_after(std::chrono::seconds{ 1 });
         co_await timer.async_wait(asio::deferred);
-        fmt::print("{}\n", i);
+        std::cout << i << '\n';
     }
 
-    s.send("HOWDY!");
-    co_return;
+    sender.send("HOWDY!");
 }
 
-asio::awaitable<void> receiver_task(oneshot::receiver<std::string> r)
+asio::awaitable<void> receiver_task(oneshot::receiver<std::string> receiver)
 {
-    fmt::print("Waiting for sender...\n");
-    co_await r.async_wait(asio::deferred);
-    fmt::print("The result: {}\n", r.get());
+    std::cout << "Waiting for sender...\n";
+    co_await receiver.async_wait(asio::deferred);
+    std::cout << "The result: " << receiver.get() << '\n';
 }
 
 int main()
