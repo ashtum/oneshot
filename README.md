@@ -1,53 +1,73 @@
-## What is the oneshot?
+## What is oneshot?
 
-**oneshot** is a single-header Asio based scheduler aware and thread-safe channel that does not block a whole thread if you want to wait on receiver side. instead it cooperates with Asio's executor like other Asio based io_objects (e.g. asio::steady_timer).  
+**oneshot** is a single-header Asio-based scheduler-aware and thread-safe channel that does not block an entire thread when waiting on the receiver side. Instead, it cooperates with Asio's executor like other Asio-based io_objects (e.g., `asio::steady_timer`).
 
-By utilizing the fact the channel can only transport a single value, the implementation is more efficent and lightweight than a reusable channel.  
+By utilizing the fact that the channel can only transport a single value, the implementation is more efficient and lightweight than a reusable channel.
 
-* Sender side never needs to wait.
+* The sender side never needs to wait.
 * `oneshot::sender<T>` and `oneshot::receiver<T>` types are move-only.
-* oneshot is thread-safe by default, that means sender and receiver parts can reside on different threads.
-* `oneshot::sender<void>` and `oneshot::receiver<void>` can be used to carry signal.
-* `oneshot::create<T>()` can take user provided allocator for allocating the shared state.
+* oneshot is thread-safe by default, meaning the sender and receiver parts can reside on different threads.
+* `oneshot::sender<void>` and `oneshot::receiver<void>` can be used to carry a signal.
+* `oneshot::create<T>()` can take a user-provided allocator for allocating the shared state.
 
 ### Quick usage
 
-The latest version of the single header can be downloaded from [`include/oneshot.hpp`](include/oneshot.hpp).  
+The latest version of the single header can be downloaded from [`include/oneshot.hpp`](include/oneshot.hpp).
 ```c++
 //#define ONESHOT_ASIO_STANDALONE for stand-alone version of Asio
 #include <oneshot.hpp>
 
 #include <boost/asio.hpp>
-#include <fmt/format.h>
 
-asio::awaitable<void> sender_task(oneshot::sender<std::string> s)
+#include <iostream>
+
+namespace asio = boost::asio;
+
+asio::awaitable<void>
+sender_task(oneshot::sender<std::string> sender)
 {
-    s.send("HOWDY!");
-    co_return;
+    auto timer = asio::steady_timer{ co_await asio::this_coro::executor };
+
+    for (auto i = 1; i <= 3; i++)
+    {
+        timer.expires_after(std::chrono::seconds{ 1 });
+        co_await timer.async_wait();
+        std::cout << i << '\n';
+    }
+
+    sender.send("HOWDY!");
 }
 
-asio::awaitable<void> receiver_task(oneshot::receiver<std::string> r)
+asio::awaitable<void>
+receiver_task(oneshot::receiver<std::string> receiver)
 {
-    co_await r.async_wait(asio::deferred);
-    fmt::print("The result: {}\n", r.get());
+    std::cout << "Waiting on sender...\n";
+    co_await receiver.async_wait();
+    std::cout << "The result: " << receiver.get() << '\n';
 }
 
-int main()
+int
+main()
 {
     auto ctx = asio::io_context{};
 
-    auto [s, r] = oneshot::create<std::string>();
+    auto [sender, receiver] = oneshot::create<std::string>();
 
-    asio::co_spawn(ctx, sender_task(std::move(s)), asio::detached);
-    asio::co_spawn(ctx, receiver_task(std::move(r)), asio::detached);
+    asio::co_spawn(ctx, sender_task(std::move(sender)), asio::detached);
+    asio::co_spawn(ctx, receiver_task(std::move(receiver)), asio::detached);
 
     ctx.run();
 }
+
 ```
 
 Output:
 
 ```BASH
+Waiting on sender...
+1
+2
+3
 The result: HOWDY!
 ```
 
