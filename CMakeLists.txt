@@ -11,13 +11,14 @@ add_library(oneshot INTERFACE)
 target_include_directories(oneshot INTERFACE include/)
 
 option(BUILD_EXAMPLES "" ON)
-option(BUILD_TESTS "" ON)
+option(BUILD_TESTING "" ON)
 
 if(BUILD_EXAMPLES)
     add_subdirectory(example)
 endif()
 
-if(BUILD_TESTS)
+if(BUILD_TESTING)
+    enable_testing()
     add_subdirectory(test)
 endif()
 

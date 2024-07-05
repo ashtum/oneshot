@@ -7,7 +7,6 @@
 #include <boost/asio.hpp>
 
 #include <iostream>
-#include <string>
 
 namespace asio = boost::asio;
 
