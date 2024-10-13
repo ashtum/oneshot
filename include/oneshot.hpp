@@ -11,6 +11,7 @@
 #ifdef ONESHOT_ASIO_STANDALONE
 #include <asio/append.hpp>
 #include <asio/associated_cancellation_slot.hpp>
+#include <asio/compose.hpp>
 #include <asio/deferred.hpp>
 #include <asio/post.hpp>
 namespace oneshot
@@ -21,6 +22,7 @@ using error_code = std::error_code;
 #else
 #include <boost/asio/append.hpp>
 #include <boost/asio/associated_cancellation_slot.hpp>
+#include <boost/asio/compose.hpp>
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/post.hpp>
 namespace oneshot
@@ -316,8 +318,11 @@ class shared_state
 
                                 if (prev == waiting)
                                 {
-                                    this->wait_op_->complete(errc::cancelled);
-                                    this->wait_op_ = nullptr;
+                                    // this pointer will be destroyed after
+                                    // complete() is called
+                                    auto* self = this;
+                                    wait_op_->complete(errc::cancelled);
+                                    self->wait_op_ = nullptr;
                                 }
                                 else // prev has been sent or detached(sender)
                                 {
@@ -328,7 +333,7 @@ class shared_state
                         });
                 }
 
-                if (this->wait_op_)
+                if (wait_op_)
                     return model->complete(errc::duplicate_wait_on_receiver);
 
                 wait_op_ = model;
@@ -385,93 +390,158 @@ class shared_state
         return nullptr;
     }
 };
+
+template<typename T, class X>
+class shs_handle
+{
+    shared_state<T>* shared_state_{ nullptr };
+
+  public:
+    shs_handle() noexcept = default;
+    shs_handle(shared_state<T>* shared_state) noexcept
+        : shared_state_{ shared_state }
+    {
+    }
+
+    shs_handle(shs_handle&& other) noexcept
+    {
+        std::swap(shared_state_, other.shared_state_);
+    }
+
+    shs_handle&
+    operator=(shs_handle&& other) noexcept
+    {
+        std::swap(shared_state_, other.shared_state_);
+        return *this;
+    }
+
+    operator bool() const noexcept
+    {
+        return shared_state_ != nullptr;
+    }
+
+    shared_state<T>*
+    operator->() const noexcept
+    {
+        return shared_state_;
+    }
+
+    shared_state<T>*
+    release()
+    {
+        return std::exchange(shared_state_, nullptr);
+    }
+
+    ~shs_handle()
+    {
+        if (shared_state_)
+            X::detach(shared_state_);
+    }
+};
+
+template<typename T>
+struct sender_shs_handle : shs_handle<T, sender_shs_handle<T>>
+{
+    static void
+    detach(shared_state<T>* p) noexcept
+    {
+        p->sender_detached();
+    }
+};
+
+template<typename T>
+struct receiver_shs_handle : shs_handle<T, receiver_shs_handle<T>>
+{
+    static void
+    detach(shared_state<T>* p) noexcept
+    {
+        p->receiver_detached();
+    }
+};
+
 } // namespace detail
 template<typename T>
 class sender
 {
-    detail::shared_state<T>* shared_state_{ nullptr };
+    detail::sender_shs_handle<T> shs_handle_;
 
   public:
     sender() noexcept = default;
 
     sender(detail::shared_state<T>* shared_state) noexcept
-        : shared_state_{ shared_state }
+        : shs_handle_{ shared_state }
     {
-    }
-
-    sender(sender&& other) noexcept
-    {
-        std::swap(shared_state_, other.shared_state_);
-    }
-
-    sender&
-    operator=(sender&& other) noexcept
-    {
-        std::swap(shared_state_, other.shared_state_);
-        return *this;
     }
 
     template<typename... Args>
     void
     send(Args&&... args)
     {
-        if (!shared_state_)
+        if (!shs_handle_)
             throw error{ errc::no_state };
 
-        shared_state_->send(std::forward<Args>(args)...);
-
-        shared_state_ = nullptr;
-    }
-
-    ~sender()
-    {
-        if (shared_state_)
-            shared_state_->sender_detached();
+        shs_handle_->send(std::forward<Args>(args)...);
+        shs_handle_.release();
     }
 };
 
 template<typename T>
 class receiver
 {
-    detail::shared_state<T>* shared_state_{ nullptr };
+    detail::receiver_shs_handle<T> shs_handle_;
 
   public:
     receiver() noexcept = default;
 
     receiver(detail::shared_state<T>* shared_state) noexcept
-        : shared_state_{ shared_state }
+        : shs_handle_{ shared_state }
     {
     }
 
-    receiver(receiver&& other) noexcept
+    template<typename CompletionToken = net::deferred_t>
+    auto
+    async_extract(CompletionToken&& token = net::deferred_t{}) &&
     {
-        std::swap(shared_state_, other.shared_state_);
-    }
+        static_assert(!std::is_same_v<T, void>, "Only for non void receivers");
 
-    receiver&
-    operator=(receiver&& other) noexcept
-    {
-        std::swap(shared_state_, other.shared_state_);
-        return *this;
+        if (!shs_handle_)
+            throw error{ errc::no_state };
+
+        return boost::asio::async_compose<CompletionToken, void(error_code, T)>(
+            [shs_handle = std::move(shs_handle_),
+             init       = false](auto&& self, error_code ec = {}) mutable
+            {
+                if (!std::exchange(init, true))
+                    return shs_handle->async_wait(std::move(self));
+
+                if (ec)
+                    return self.complete(ec, T{});
+
+                if (auto* p = shs_handle->get_stored_object())
+                    return self.complete({}, std::move(*p));
+
+                self.complete(errc::unready, {});
+            },
+            token);
     }
 
     template<typename CompletionToken = net::deferred_t>
     auto
     async_wait(CompletionToken&& token = net::deferred_t{})
     {
-        if (!shared_state_)
+        if (!shs_handle_)
             throw error{ errc::no_state };
 
-        return shared_state_->async_wait(std::forward<CompletionToken>(token));
+        return shs_handle_->async_wait(std::forward<CompletionToken>(token));
     }
 
     bool
     is_ready() const
     {
-        if (!shared_state_)
+        if (!shs_handle_)
             throw error{ errc::no_state };
 
-        return shared_state_->is_ready();
+        return shs_handle_->is_ready();
     }
 
     decltype(auto)
@@ -479,19 +549,13 @@ class receiver
     {
         static_assert(!std::is_same_v<T, void>, "Only for non void receivers");
 
-        if (!shared_state_)
+        if (!shs_handle_)
             throw error{ errc::no_state };
 
-        if (auto* p = shared_state_->get_stored_object())
+        if (auto* p = shs_handle_->get_stored_object())
             return std::add_lvalue_reference_t<T>(*p);
 
         throw error{ errc::unready };
-    }
-
-    ~receiver()
-    {
-        if (shared_state_)
-            shared_state_->receiver_detached();
     }
 };
 

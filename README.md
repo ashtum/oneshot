@@ -24,6 +24,15 @@ The latest version of the single header can be downloaded from [`include/oneshot
 namespace asio = boost::asio;
 
 asio::awaitable<void>
+receiver_task(oneshot::receiver<std::string> receiver)
+{
+    std::cout << "Waiting on sender...\n";
+    std::cout << co_await std::move(receiver).async_extract() << '\n';
+    // Use receiver.async_wait() and receiver.get() if T is not
+    // DefaultConstructible or MoveConstructible, or if T is void.
+}
+
+asio::awaitable<void>
 sender_task(oneshot::sender<std::string> sender)
 {
     auto timer = asio::steady_timer{ co_await asio::this_coro::executor };
@@ -36,14 +45,6 @@ sender_task(oneshot::sender<std::string> sender)
     }
 
     sender.send("HOWDY!");
-}
-
-asio::awaitable<void>
-receiver_task(oneshot::receiver<std::string> receiver)
-{
-    std::cout << "Waiting on sender...\n";
-    co_await receiver.async_wait();
-    std::cout << "The result: " << receiver.get() << '\n';
 }
 
 int
@@ -68,7 +69,7 @@ Waiting on sender...
 1
 2
 3
-The result: HOWDY!
+HOWDY!
 ```
 
 #### Custom allocator
