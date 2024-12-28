@@ -29,7 +29,7 @@ receiver_task(oneshot::receiver<std::string> receiver)
     std::cout << "Waiting on sender...\n";
     std::cout << co_await std::move(receiver).async_extract() << '\n';
     // Use receiver.async_wait() and receiver.get() if T is not
-    // DefaultConstructible or MoveConstructible, or if T is void.
+    // DefaultConstructible or MoveConstructible.
 }
 
 asio::awaitable<void>

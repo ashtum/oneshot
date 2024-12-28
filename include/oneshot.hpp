@@ -391,6 +391,21 @@ class shared_state
     }
 };
 
+template<typename T>
+struct async_extract_signature
+{
+    using type = void(error_code, T);
+};
+
+template<>
+struct async_extract_signature<void>
+{
+    using type = void(error_code);
+};
+
+template<typename T>
+using async_extract_signature_t = typename async_extract_signature<T>::type;
+
 template<typename T, class X>
 class shs_handle
 {
@@ -427,7 +442,7 @@ class shs_handle
     }
 
     shared_state<T>*
-    release()
+    release() noexcept
     {
         return std::exchange(shared_state_, nullptr);
     }
@@ -460,6 +475,7 @@ struct receiver_shs_handle : shs_handle<T, receiver_shs_handle<T>>
 };
 
 } // namespace detail
+
 template<typename T>
 class sender
 {
@@ -500,14 +516,14 @@ class receiver
 
     template<typename CompletionToken = net::deferred_t>
     auto
-    async_extract(CompletionToken&& token = net::deferred_t{}) &&
+    async_extract(CompletionToken&& token = CompletionToken{}) &&
     {
-        static_assert(!std::is_same_v<T, void>, "Only for non void receivers");
-
         if (!shs_handle_)
             throw error{ errc::no_state };
 
-        return boost::asio::async_compose<CompletionToken, void(error_code, T)>(
+        return net::async_compose<
+            CompletionToken,
+            detail::async_extract_signature_t<T>>(
             [shs_handle = std::move(shs_handle_),
              init       = false](auto&& self, error_code ec = {}) mutable
             {
@@ -515,19 +531,31 @@ class receiver
                     return shs_handle->async_wait(std::move(self));
 
                 if (ec)
-                    return self.complete(ec, T{});
+                {
+                    if constexpr (std::is_same_v<T, void>)
+                        return self.complete(ec);
+                    else
+                        return self.complete(ec, T{});
+                }
 
-                if (auto* p = shs_handle->get_stored_object())
-                    return self.complete({}, std::move(*p));
-
-                self.complete(errc::unready, {});
+                if constexpr (std::is_same_v<T, void>)
+                {
+                    return self.complete(ec);
+                }
+                else
+                {
+                    if (auto* p = shs_handle->get_stored_object())
+                        return self.complete(ec, std::move(*p));
+                    else
+                        return self.complete(errc::unready, T{});
+                }
             },
             token);
     }
 
     template<typename CompletionToken = net::deferred_t>
     auto
-    async_wait(CompletionToken&& token = net::deferred_t{})
+    async_wait(CompletionToken&& token = CompletionToken{})
     {
         if (!shs_handle_)
             throw error{ errc::no_state };
