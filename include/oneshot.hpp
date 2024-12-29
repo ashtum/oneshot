@@ -163,11 +163,16 @@ class wait_op_model final : public wait_op
     void
     complete(error_code ec) override
     {
-        get_cancellation_slot().clear();
-        auto g = std::move(work_guard_);
-        auto h = std::move(handler_);
-        destroy(this, net::get_associated_allocator(h));
-        net::post(g.get_executor(), net::append(std::move(h), ec));
+        net::post(
+            work_guard_.get_executor(),
+            [this, ec]()
+            {
+                get_cancellation_slot().clear();
+                auto g = std::move(work_guard_);
+                auto h = std::move(handler_);
+                destroy(this, net::get_associated_allocator(h));
+                std::move(h)(ec);
+            });
     }
 
     void
@@ -318,11 +323,8 @@ class shared_state
 
                                 if (prev == waiting)
                                 {
-                                    // this pointer will be destroyed after
-                                    // complete() is called
-                                    auto* self = this;
                                     wait_op_->complete(errc::cancelled);
-                                    self->wait_op_ = nullptr;
+                                    wait_op_ = nullptr;
                                 }
                                 else // prev has been sent or detached(sender)
                                 {

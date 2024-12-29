@@ -80,14 +80,15 @@ BOOST_AUTO_TEST_CASE(send_value)
     auto [s, r] = oneshot::create<std::string>();
     auto called = 0;
 
-    r.async_wait(asio::bind_executor(
-        ctx,
-        [&, &r = r](auto ec)
-        {
-            called++;
-            BOOST_CHECK(!ec);
-            BOOST_CHECK_EQUAL(r.get(), "Hello");
-        }));
+    r.async_wait(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec)
+            {
+                called++;
+                BOOST_CHECK(!ec);
+                BOOST_CHECK_EQUAL(r.get(), "Hello");
+            }));
 
     s.send("Hello");
 
@@ -102,13 +103,14 @@ BOOST_AUTO_TEST_CASE(send_void)
     auto [s, r] = oneshot::create<void>();
     auto called = 0;
 
-    r.async_wait(asio::bind_executor(
-        ctx,
-        [&](auto ec)
-        {
-            called++;
-            BOOST_CHECK(!ec);
-        }));
+    r.async_wait(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec)
+            {
+                called++;
+                BOOST_CHECK(!ec);
+            }));
 
     s.send();
 
@@ -123,13 +125,14 @@ BOOST_AUTO_TEST_CASE(async_extract_send_void)
     auto [s, r] = oneshot::create<void>();
     auto called = 0;
 
-    std::move(r).async_extract(asio::bind_executor(
-        ctx,
-        [&](auto ec)
-        {
-            called++;
-            BOOST_CHECK(!ec);
-        }));
+    std::move(r).async_extract(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec)
+            {
+                called++;
+                BOOST_CHECK(!ec);
+            }));
 
     s.send();
 
@@ -146,14 +149,15 @@ BOOST_AUTO_TEST_CASE(wait_after_send)
 
     s.send("Hello");
 
-    r.async_wait(asio::bind_executor(
-        ctx,
-        [&, &r = r](auto ec)
-        {
-            called++;
-            BOOST_CHECK(!ec);
-            BOOST_CHECK_EQUAL(r.get(), "Hello");
-        }));
+    r.async_wait(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec)
+            {
+                called++;
+                BOOST_CHECK(!ec);
+                BOOST_CHECK_EQUAL(r.get(), "Hello");
+            }));
 
     BOOST_CHECK_EQUAL(called, 0);
     ctx.run();
@@ -170,18 +174,19 @@ BOOST_AUTO_TEST_CASE(broken_sender)
         auto s2 = std::move(s);
     } // destroys promise
 
-    r.async_wait(asio::bind_executor(
-        ctx,
-        [&, &r = r](auto ec)
-        {
-            called++;
-            BOOST_CHECK_EQUAL(ec, oneshot::errc::broken_sender);
-            BOOST_CHECK_EXCEPTION(
-                r.get(),
-                oneshot::error,
-                [](const auto& e)
-                { return e.code() == oneshot::errc::unready; });
-        }));
+    r.async_wait(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec)
+            {
+                called++;
+                BOOST_CHECK_EQUAL(ec, oneshot::errc::broken_sender);
+                BOOST_CHECK_EXCEPTION(
+                    r.get(),
+                    oneshot::error,
+                    [](const auto& e)
+                    { return e.code() == oneshot::errc::unready; });
+            }));
 
     BOOST_CHECK_EQUAL(called, 0);
     ctx.run();
@@ -194,23 +199,26 @@ BOOST_AUTO_TEST_CASE(duplicate_wait_on_receiver)
     auto [s, r] = oneshot::create<std::string>();
     auto called = 0;
 
-    r.async_wait(asio::bind_executor(
-        ctx,
-        [&, &r = r](auto ec)
-        {
-            called++;
-            BOOST_CHECK(!ec);
-            BOOST_CHECK_EQUAL(r.get(), "Hello");
-        }));
+    r.async_wait(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec)
+            {
+                called++;
+                BOOST_CHECK(!ec);
+                BOOST_CHECK_EQUAL(r.get(), "Hello");
+            }));
 
-    r.async_wait(asio::bind_executor(
-        ctx,
-        [&, &r = r](auto ec)
-        {
-            called++;
-            BOOST_CHECK_EQUAL(ec, oneshot::errc::duplicate_wait_on_receiver);
-            BOOST_CHECK_EQUAL(r.get(), "Hello");
-        }));
+    r.async_wait(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec)
+            {
+                called++;
+                BOOST_CHECK_EQUAL(
+                    ec, oneshot::errc::duplicate_wait_on_receiver);
+                BOOST_CHECK_EQUAL(r.get(), "Hello");
+            }));
 
     s.send("Hello");
 
@@ -226,19 +234,20 @@ BOOST_AUTO_TEST_CASE(cancellation_after_send)
     auto called = 0;
 
     auto cs = asio::cancellation_signal{};
-    r.async_wait(asio::bind_cancellation_slot(
-        cs.slot(),
-        asio::bind_executor(
-            ctx,
-            [&, &r = r](auto ec)
-            {
-                called++;
-                BOOST_CHECK(!ec);
-                BOOST_CHECK_EQUAL(r.get(), "Hello");
-            })));
+    r.async_wait(
+        asio::bind_cancellation_slot(
+            cs.slot(),
+            asio::bind_executor(
+                ctx,
+                [&](auto ec)
+                {
+                    called++;
+                    BOOST_CHECK(!ec);
+                    BOOST_CHECK_EQUAL(r.get(), "Hello");
+                })));
 
     s.send("Hello");
-    cs.emit(asio::cancellation_type::terminal);
+    cs.emit(asio::cancellation_type::total);
 
     BOOST_CHECK_EQUAL(called, 0);
     ctx.run();
@@ -252,17 +261,18 @@ BOOST_AUTO_TEST_CASE(cancellation_before_send)
     auto called = 0;
 
     auto cs = asio::cancellation_signal{};
-    r.async_wait(asio::bind_cancellation_slot(
-        cs.slot(),
-        asio::bind_executor(
-            ctx,
-            [&](auto ec)
-            {
-                called++;
-                BOOST_CHECK_EQUAL(ec, oneshot::errc::cancelled);
-            })));
+    r.async_wait(
+        asio::bind_cancellation_slot(
+            cs.slot(),
+            asio::bind_executor(
+                ctx,
+                [&](auto ec)
+                {
+                    called++;
+                    BOOST_CHECK_EQUAL(ec, oneshot::errc::cancelled);
+                })));
 
-    cs.emit(asio::cancellation_type::terminal);
+    cs.emit(asio::cancellation_type::total);
     s.send("Hello");
 
     BOOST_CHECK_EQUAL(called, 0);
@@ -276,14 +286,15 @@ BOOST_AUTO_TEST_CASE(async_extract_send_value)
     auto [s, r] = oneshot::create<std::string>();
     auto called = 0;
 
-    std::move(r).async_extract(asio::bind_executor(
-        ctx,
-        [&](auto ec, std::string v)
-        {
-            called++;
-            BOOST_CHECK(!ec);
-            BOOST_CHECK_EQUAL(v, "Hello");
-        }));
+    std::move(r).async_extract(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec, std::string v)
+            {
+                called++;
+                BOOST_CHECK(!ec);
+                BOOST_CHECK_EQUAL(v, "Hello");
+            }));
 
     BOOST_CHECK_EXCEPTION(
         r.get(),
@@ -317,13 +328,14 @@ BOOST_AUTO_TEST_CASE(async_extract_move_only)
     auto [s, r] = oneshot::create<move_only>();
     auto called = 0;
 
-    std::move(r).async_extract(asio::bind_executor(
-        ctx,
-        [&](auto ec, move_only)
-        {
-            called++;
-            BOOST_CHECK(!ec);
-        }));
+    std::move(r).async_extract(
+        asio::bind_executor(
+            ctx,
+            [&](auto ec, move_only)
+            {
+                called++;
+                BOOST_CHECK(!ec);
+            }));
 
     s.send(1);
 
@@ -339,15 +351,16 @@ BOOST_AUTO_TEST_CASE(async_extract_cancellation_before_send)
     auto called = 0;
 
     auto cs = asio::cancellation_signal{};
-    std::move(r).async_extract(asio::bind_cancellation_slot(
-        cs.slot(),
-        asio::bind_executor(
-            ctx,
-            [&](auto ec, auto)
-            {
-                called++;
-                BOOST_CHECK_EQUAL(ec, oneshot::errc::cancelled);
-            })));
+    std::move(r).async_extract(
+        asio::bind_cancellation_slot(
+            cs.slot(),
+            asio::bind_executor(
+                ctx,
+                [&](auto ec, auto)
+                {
+                    called++;
+                    BOOST_CHECK_EQUAL(ec, oneshot::errc::cancelled);
+                })));
 
     cs.emit(asio::cancellation_type::terminal);
 
@@ -363,15 +376,16 @@ BOOST_AUTO_TEST_CASE(async_extract_cancellation_before_send_void)
     auto called = 0;
 
     auto cs = asio::cancellation_signal{};
-    std::move(r).async_extract(asio::bind_cancellation_slot(
-        cs.slot(),
-        asio::bind_executor(
-            ctx,
-            [&](auto ec)
-            {
-                called++;
-                BOOST_CHECK_EQUAL(ec, oneshot::errc::cancelled);
-            })));
+    std::move(r).async_extract(
+        asio::bind_cancellation_slot(
+            cs.slot(),
+            asio::bind_executor(
+                ctx,
+                [&](auto ec)
+                {
+                    called++;
+                    BOOST_CHECK_EQUAL(ec, oneshot::errc::cancelled);
+                })));
 
     cs.emit(asio::cancellation_type::terminal);
 
