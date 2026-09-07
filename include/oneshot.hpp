@@ -163,10 +163,31 @@ class wait_op_model final : public wait_op
     void
     complete(error_code ec) override
     {
+        struct guard_t
+        {
+            wait_op_model* p_;
+
+            explicit guard_t(wait_op_model* p) noexcept
+                : p_(p)
+            {
+            }
+
+            guard_t(guard_t&& other) noexcept
+                : p_(std::exchange(other.p_, nullptr))
+            {
+            }
+
+            ~guard_t()
+            {
+                if (p_)
+                    p_->shutdown();
+            }
+        } guard{ this };
         net::post(
             work_guard_.get_executor(),
-            [this, ec]()
+            [this, ec, guard = std::move(guard)]() mutable
             {
+                guard.p_ = nullptr;
                 get_cancellation_slot().clear();
                 auto g = std::move(work_guard_);
                 auto h = std::move(handler_);
