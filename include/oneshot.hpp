@@ -183,6 +183,7 @@ class wait_op_model final : public wait_op
                     p_->shutdown();
             }
         } guard{ this };
+
         net::post(
             work_guard_.get_executor(),
             [this, ec, guard = std::move(guard)]() mutable

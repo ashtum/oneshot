@@ -7,11 +7,65 @@
 #include <boost/asio.hpp>
 #include <boost/test/unit_test.hpp>
 
+#include <memory>
 #include <memory_resource>
 
 BOOST_AUTO_TEST_SUITE(oneshot)
 
 namespace asio = boost::asio;
+
+struct alloc_counter
+{
+    int allocs   = 0;
+    int deallocs = 0;
+};
+
+template<typename T>
+struct counting_allocator
+{
+    using value_type = T;
+
+    alloc_counter* counter;
+
+    explicit counting_allocator(alloc_counter* c) noexcept
+        : counter{ c }
+    {
+    }
+
+    template<typename U>
+    counting_allocator(const counting_allocator<U>& other) noexcept
+        : counter{ other.counter }
+    {
+    }
+
+    T*
+    allocate(std::size_t n)
+    {
+        counter->allocs++;
+        return std::allocator<T>{}.allocate(n);
+    }
+
+    void
+    deallocate(T* p, std::size_t n) noexcept
+    {
+        counter->deallocs++;
+        std::allocator<T>{}.deallocate(p, n);
+    }
+
+    template<typename U>
+    bool
+    operator==(const counting_allocator<U>& other) const noexcept
+    {
+        return counter == other.counter;
+    }
+
+    template<typename U>
+    bool
+    operator!=(const counting_allocator<U>& other) const noexcept
+    {
+        return counter != other.counter;
+    }
+};
 
 BOOST_AUTO_TEST_CASE(no_state)
 {
@@ -392,6 +446,110 @@ BOOST_AUTO_TEST_CASE(async_extract_cancellation_before_send_void)
     BOOST_CHECK_EQUAL(called, 0);
     ctx.run();
     BOOST_CHECK_EQUAL(called, 1);
+}
+
+BOOST_AUTO_TEST_CASE(pending_completion_on_destroyed_io_context)
+{
+    auto counter = alloc_counter{};
+    auto [s, r]  = oneshot::create<std::string>();
+    auto called  = 0;
+    auto token   = std::make_shared<int>(0);
+    auto wtoken  = std::weak_ptr<int>{ token };
+
+    {
+        auto ctx = asio::io_context{};
+
+        r.async_wait(
+            asio::bind_allocator(
+                counting_allocator<char>{ &counter },
+                asio::bind_executor(
+                    ctx,
+                    [&, token = std::move(token)](auto) { called++; })));
+
+        s.send("Hello");
+
+        BOOST_CHECK(!wtoken.expired());
+        BOOST_CHECK_EQUAL(counter.allocs, 1);
+        BOOST_CHECK_EQUAL(counter.deallocs, 0);
+    }
+
+    BOOST_CHECK_EQUAL(called, 0);
+    BOOST_CHECK(wtoken.expired());
+    BOOST_CHECK_EQUAL(counter.allocs, counter.deallocs);
+
+    BOOST_CHECK(r.is_ready());
+    BOOST_CHECK_EQUAL(r.get(), "Hello");
+}
+
+BOOST_AUTO_TEST_CASE(async_extract_pending_completion_on_destroyed_io_context)
+{
+    auto op_counter    = alloc_counter{};
+    auto state_counter = alloc_counter{};
+    auto called        = 0;
+    auto token         = std::make_shared<int>(0);
+    auto wtoken        = std::weak_ptr<int>{ token };
+    auto value         = std::make_shared<int>(0);
+    auto wvalue        = std::weak_ptr<int>{ value };
+
+    {
+        auto ctx = asio::io_context{};
+        using state_allocator = counting_allocator<std::shared_ptr<int>>;
+        auto [s, r] = oneshot::create<std::shared_ptr<int>, state_allocator>(
+            state_allocator{ &state_counter });
+
+        std::move(r).async_extract(
+            asio::bind_allocator(
+                counting_allocator<char>{ &op_counter },
+                asio::bind_executor(
+                    ctx,
+                    [&, token = std::move(token)](auto, auto) { called++; })));
+
+        s.send(std::move(value));
+
+        BOOST_CHECK(!wtoken.expired());
+        BOOST_CHECK(!wvalue.expired());
+        BOOST_CHECK_EQUAL(op_counter.allocs, 1);
+        BOOST_CHECK_EQUAL(op_counter.deallocs, 0);
+        BOOST_CHECK_EQUAL(state_counter.allocs, 1);
+        BOOST_CHECK_EQUAL(state_counter.deallocs, 0);
+    }
+
+    BOOST_CHECK_EQUAL(called, 0);
+    BOOST_CHECK(wtoken.expired());
+    BOOST_CHECK(wvalue.expired());
+    BOOST_CHECK_EQUAL(op_counter.allocs, op_counter.deallocs);
+    BOOST_CHECK_EQUAL(state_counter.allocs, state_counter.deallocs);
+}
+
+BOOST_AUTO_TEST_CASE(cancelled_pending_completion_on_destroyed_io_context)
+{
+    auto counter = alloc_counter{};
+    auto called  = 0;
+    auto cs      = asio::cancellation_signal{};
+
+    {
+        auto [s, r] = oneshot::create<std::string>();
+        auto ctx    = asio::io_context{};
+
+        r.async_wait(
+            asio::bind_cancellation_slot(
+                cs.slot(),
+                asio::bind_allocator(
+                    counting_allocator<char>{ &counter },
+                    asio::bind_executor(ctx, [&](auto) { called++; }))));
+
+        cs.emit(asio::cancellation_type::total);
+
+        BOOST_CHECK(cs.slot().has_handler());
+        BOOST_CHECK_EQUAL(counter.allocs, 1);
+        BOOST_CHECK_EQUAL(counter.deallocs, 0);
+    }
+
+    BOOST_CHECK_EQUAL(called, 0);
+    BOOST_CHECK_EQUAL(counter.allocs, counter.deallocs);
+
+    BOOST_CHECK(!cs.slot().has_handler());
+    cs.emit(asio::cancellation_type::total);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
